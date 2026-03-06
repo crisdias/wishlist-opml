@@ -65,6 +65,9 @@ type OPMLOutline struct {
 var (
 	httpClient = &http.Client{Timeout: 15 * time.Second}
 
+	steamIDRegex = regexp.MustCompile(`steamid["\\/]*:\s*["\\/]*(\d{17})`)
+	validUserID  = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
 	// Caches: Steam IDs and app names never change, so no TTL needed.
 	steamIDCache   = make(map[string]string) // vanity URL -> numeric Steam ID
 	steamIDCacheMu sync.RWMutex
@@ -94,8 +97,7 @@ func resolveSteamID(userID string) (string, error) {
 		return "", fmt.Errorf("reading wishlist page: %w", err)
 	}
 
-	re := regexp.MustCompile(`steamid["\\/]*:\s*["\\/]*(\d{17})`)
-	matches := re.FindAllStringSubmatch(string(body), -1)
+	matches := steamIDRegex.FindAllStringSubmatch(string(body), -1)
 	for _, m := range matches {
 		steamIDCacheMu.Lock()
 		steamIDCache[userID] = m[1]
@@ -213,7 +215,7 @@ func handleWishlist(w http.ResponseWriter, r *http.Request) {
 	userID := strings.TrimPrefix(r.URL.Path, "/wishlist/")
 	userID = strings.TrimSuffix(userID, "/")
 
-	if userID == "" {
+	if userID == "" || !validUserID.MatchString(userID) {
 		http.Error(w, "Usage: /wishlist/{steam_user_id}", http.StatusBadRequest)
 		return
 	}
@@ -262,6 +264,9 @@ func main() {
 		port = "8080"
 	}
 
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
 	http.HandleFunc("/wishlist/", handleWishlist)
 
 	log.Printf("Listening on :%s", port)
